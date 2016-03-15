@@ -20,39 +20,13 @@
 
 #include "mylib.h"
 
-/* Helper struct for holding pthread synchronization data.
- * Data objects are passed to the generic sync() method in mylib,
- * providing a synchronization primitive similar to an OpenMP barrier.
- */
-typedef struct 
-{
-  pthread_barrier_t *barrier;
-  pthread_mutex_t   *mutex;
-  unsigned char status_counter;
-} PthreadBarrierData;
-
-
 /* Callback routine for pthread synchronization, registered in mylib.
    This routine implements a thread barrier similar to an OpenMP barrier. */
 void pthread_sync(int tid, int tsize, void *data)
 {
-  PthreadBarrierData *barrier_data = (PthreadBarrierData *)data;
-  pthread_barrier_t *my_barrier = barrier_data->barrier;
-  pthread_mutex_t   *my_mutex   = barrier_data->mutex;
-  unsigned char status  = barrier_data->status_counter;
+  pthread_barrier_t *my_barrier = (pthread_barrier_t *)data;
 
   pthread_barrier_wait(my_barrier);
-
-  /* Reset barrier for next use */
-  pthread_mutex_lock(my_mutex);
-  if (barrier_data->status_counter == status)
-  {
-    pthread_barrier_destroy(my_barrier);
-    pthread_barrier_init(my_barrier, NULL, tsize);
-    barrier_data->barrier = my_barrier;
-    barrier_data->status_counter += 1;
-  }
-  pthread_mutex_unlock(my_mutex);
 }
 
 /* Data holder passed as data argument to pthread_create() */
@@ -91,8 +65,6 @@ int main(int argc, char **argv)
   pthread_t *threads;
   /* The following variables could be hidden inside mylib if needed. */
   pthread_barrier_t   barrier;
-  pthread_mutex_t     mutex;
-  PthreadBarrierData  barrier_data;
 
   /* Create global thread manager and register synchronization callback together with the required barrier and mutex.
    * The following code block could be wrapped inside a singe mylib_ThreadFactory_create_pthread(...) routine.
@@ -100,11 +72,7 @@ int main(int argc, char **argv)
   mylib_ThreadFactory_create(&tfactory);
   tfactory->sync = pthread_sync;
   pthread_barrier_init(&barrier, NULL, num_threads);
-  pthread_mutex_init(&mutex, NULL);
-  barrier_data.barrier = &barrier;
-  barrier_data.mutex   = &mutex;
-  barrier_data.status_counter = 1;
-  tfactory->sync_data = &barrier_data;
+  tfactory->sync_data = &barrier;
 
   /* Prepare per-thread context information */
   threads  = (pthread_t *)          malloc(num_threads * sizeof(pthread_t));
@@ -190,7 +158,6 @@ int main(int argc, char **argv)
   free(args);
 
   pthread_barrier_destroy(&barrier);
-  pthread_mutex_destroy(&mutex);
 
   mylib_ThreadFactory_destroy(tfactory);
 
